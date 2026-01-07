@@ -10,15 +10,15 @@ KGRD is a novel framework designed to enhance the diagnosis and genetic counseli
 
 ## 🛠️ Installation & Environment Setup
 
-1. Repository Cloning
+### 1. Repository Cloning
 
 First, clone the repository and navigate to the project root directory:
-
+```
 git clone [https://github.com/your-username/KGRD.git](https://github.com/your-username/KGRD.git)
 cd KGRD
+```
 
-
-2. Python Environments
+### 2. Python Environments
 
 To ensure dependency compatibility, this framework requires two distinct Python environments:
 
@@ -29,17 +29,17 @@ GCN: For the Graph Convolutional Network modules (RDLinker).
 We recommend using Anaconda/Miniconda to manage these environments:
 
 ### Create and activate the Agent environment
+```
 conda create -n agent python=3.12.2
 pip install -r requirements.txt
-
+```
 ### Create and activate the GCN environment
+```
 conda create -n GCN python=3.8.20
 pip install -r requirements_RDLinker.txt
+```
 
 
-## 📂 Data Preparation & Dependencies
-
-Before running the framework, several external components and model checkpoints must be downloaded and placed in specific directories.
 ## 📂 Data Preparation & Dependencies
 
 Before running the framework, you must download several external components and model checkpoints. Ensure they are placed in the specific directories outlined below.
