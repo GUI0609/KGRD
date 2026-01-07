@@ -1,0 +1,70 @@
+{
+    "APP_ID": "KGRD",
+    "NEO4J": {
+        "NEO4J_URI": "bolt://localhost:7689",
+        "NEO4J_USERNAME": "neo4j",
+        "NEO4J_PASSWORD": "password"
+    },
+    "API_KEYS": {
+        "DEEPSEEK": "sk-xxx",
+        "OPENAI": "your_openai_key",
+        "DIFI": "app-xxx",
+        "DIAGNOSIS": ""
+    },
+    "LLM_MODELS": {
+        "deepseek": {
+            "model": "deepseek-chat",
+            "base_url": "https:xxx",
+            "api_key": "xxx",
+            "temperature": 0.3
+        }
+    },
+
+    "EVALUATOR": {
+        "model": "deepseek",
+        "log_level": "INFO",
+        "save_summary": true
+    },
+"LLM_PROVIDER": "deepseek",
+"URLS": {
+    "KNOWLEDGE_GRAPH": "http://localhost:8194",
+    "GNN_PREDICT": "http://localhost:8092",
+    "SHEPHERD": "http://localhost:6006",
+    "PHENOBRAIN": "http://www.phenobrain.cs.tsinghua.edu.cn",
+    "DIFI_WORKFLOW": "http://0.0.0.0/v1/workflows/run",
+    "ENSEMBL_REST": "https://rest.ensembl.org",
+    "NCBI_EUTILS": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
+},
+"PATHS": {
+    "DATASETS":"PATH/TO/KGRD/data/KGRD_diagnosis_test",
+    "SAPBERT": "PATH/TO/Multi-agent-conversation-for-disease-diagnosis/SapBERT",
+    "HPO_OBO": "PATH/TO/KGRD/src/KGRD_framework/kg/hp.obo",
+    "WORD_LIST_PATH": "PATH/TO/KGRD/src/KGRD_framework/kg/all_nodes_entity_id.csv",
+    "OUTPUT_ROOT": "./output",
+    "LOG_DIR": "./output/log",
+    "EVAL_DIR": "PATH/TO/KGRD/eval_results",
+    "EXPERT_PROMPTS": "PATH/TO/KGRD/src/KGRD_framework/utils/all_expert_prompt.jsonl",
+    "PATIENT_COHORT": "PATH/TO/KGRD/data/PATIENTS/PATHENT_COHORT.txt"
+},
+"RD_LINKER": {
+    "MAIN_PATH": "PATH/TO/TxGNN",
+    "DATA_PATH": "PATH/TO/KGRD/src/KGRD_framework/kg",
+    "MODEL_PATH": "PATH/TO/model_ckpt_20250516_200215_finetune",
+    "DEVICE": "cuda:0",
+    "SEED": 42,
+    "HOST": "0.0.0.0",
+    "PORT": 8092
+},
+"THRESHOLDS": {
+    "VOTER": 1.5,
+    "MIN_CONFIDENCE": 0.6,
+    "MAJORITY": 0.8,
+    "CHANNEL_WEIGHTS": {
+        "db": 1.0,
+        "kg": 1.0,
+        "gene": 1.0,
+        "phenotype": 1.0,
+        "literature": 1.0
+    }
+}
+}
