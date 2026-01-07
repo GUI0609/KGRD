@@ -1,70 +1,139 @@
-# KGRD: Knowledge-Graph-Augmented Automated Reasoning Framework for Diagnosis and Counselling of Paediatric Rare Genetic Disorders
+KGRD: Knowledge-Graph-Augmented Automated Reasoning Framework for Diagnosis and Counselling of Paediatric Rare Genetic Disorders
 
-This repository contains the **data and source code** associated with the paper:
+This repository contains the official dataset and source code for the paper:
 
-**KGRD: A Knowledge-Graph-Augmented Automated Reasoning Framework for Diagnosis and Counselling of Paediatric Rare Genetic Disorders**
+KGRD: A Knowledge-Graph-Augmented Automated Reasoning Framework for Diagnosis and Counselling of Paediatric Rare Genetic Disorders
 
-The manuscript has been **completed**, and the corresponding codebase is **currently under active organization and refinement**.  
-Additional components, documentation, and reproducibility scripts will be released progressively.
+🚀 Overview
 
----
+KGRD is a novel framework designed to enhance the diagnosis and genetic counseling of pediatric rare diseases. By integrating automated reasoning agents with comprehensive knowledge graphs, KGRD facilitates more accurate phenotype analysis and pathogenic variant prioritization.
 
-## Repository Structure
+🛠️ Installation & Environment Setup
 
-```
-data/
-├── KGRD_diagnosis_test/          # Evaluation datasets for rare disease diagnosis
-│   ├── UDN/                    
-│   ├── MAC/                      
-│   └── Pheval_Rare_Dup/          evaluation data
-├── KG/                           # Rare Disease Knowledge Graph 
-└── GeneAgent/
-    └── RDLinker-att/             # RDLinker-att model data
-        └── test/                 # Test set
-│
-├── docs/
-├── quick_start/
-├── src/
-├── web/
-│
-├── requirements.txt
-└── README.md
-```
+1. Repository Cloning
 
----
+First, clone the repository and navigate to the project root directory:
 
-##  Data
-
-##  Model
-
-The RDLinker-att model checkpoints are publicly archived and available for download at [RDLinker-att](https://huggingface.co/Sirius20412/RDLinker-att).
+git clone [https://github.com/your-username/KGRD.git](https://github.com/your-username/KGRD.git)
+cd KGRD
 
 
----
+2. Python Environments
 
-## ⚙️ Requirements
+To ensure dependency compatibility, this framework requires two distinct Python environments:
 
-All dependencies are listed in:
+agent: For the reasoning agents and LLM interactions.
 
-requirements.txt
+GCN: For the Graph Convolutional Network modules (RDLinker).
 
-You are encouraged to create a virtual environment before installation.
+We recommend using Anaconda/Miniconda to manage these environments:
 
----
+# Create and activate the Agent environment
+conda create -n agent python=3.12.2
+pip install -r requirements.txt
 
-## 📜 License
+# Create and activate the GCN environment
+conda create -n GCN python=3.8.20
+pip install -r requirements_RDLinker.txt
 
-This project is released under the **MIT License**.  
-See the `LICENSE` file for details.
 
----
+📂 Data Preparation & Dependencies
 
-## 📌 Citation
+Before running the framework, several external components and model checkpoints must be downloaded and placed in specific directories.
 
-If you use this code or data in your research, please cite the corresponding paper (citation information will be added upon publication).
+1. RDLinker-att Model Checkpoints
 
----
+The pre-trained checkpoints for the RDLinker-att model are publicly available.
 
-## 📬 Contact
+Download Source: HuggingFace - RDLinker-att
 
-For questions, issues, or collaboration inquiries, please open an issue in this repository.
+Destination: Move the downloaded files to:
+src/KGRD_framework/utils/RDLinker-att
+
+2. Knowledge Graph & Training Data
+
+The core Knowledge Graph (KG) and training/testing datasets should be located in src/KGRD_framework/kg.
+
+Data Format: For details regarding the data schema and formatting, please refer to the TxGNN repository.
+
+3. Doc2Hpo 2.0
+
+The framework utilizes Doc2Hpo for phenotype extraction.
+
+Download Source: Doc2Hpo2.0 GitHub
+
+Destination: Place the repository in:
+src/KGRD_framework/utils/Doc2Hpo2.0
+
+4. Patient Cohort Data
+
+Prepare your rare disease patient dataset. A reference format is provided in PATHENT_COHORT.txt.
+
+VCF Preprocessing:
+If your raw data is in VCF format, it requires preprocessing to generate valid test samples.
+
+Execute the preprocessing pipeline:
+
+bash src/VCF_preprocess/run_rd_pipelines.sh
+
+
+The output will resemble the format found in:
+data/KGRD_diagnosis_test/single_test_case.json
+
+5. Component Verification
+
+To verify that all tools (including the Tool Agent and Verifier Agent) are correctly installed, please run the unit tests provided in:
+src/KGRD_framework/test_utils.ipynb
+
+⚙️ Configuration
+
+Initialize Config File:
+Duplicate the example configuration file and rename it.
+
+cp config_example.json config.json
+
+
+Customize Parameters:
+Open config.json and update the following:
+
+Paths: Replace all instances of PATH/TO/config.json (and other placeholder paths) with the absolute paths on your local machine.
+
+LLM Settings: Configure the API keys and parameters for the Large Language Model.
+
+🏃 Usage
+
+1. Start Background Services
+
+Initiate the necessary backend services by running the startup script. Monitor the output (.out) files to ensure all services launch successfully.
+
+bash src/KGRD_framework/start_all.sh
+
+
+2. Run Single Case Inference
+
+To test the framework on a single patient case, use the main_models.py script. The command below demonstrates a standard execution using the DeepSeek-Chat model with specific tool selection.
+
+python main_models.py \
+    --model_name deepseek-chat \
+    --dataset_name single_test_case \
+    --project_name single_test_case \
+    --stage follow_up \
+    --times 1 \
+    --num_doctors 9 \
+    --n_round 15 \
+    --withtool True \
+    --SelectTool "PhenoDMiner,GeneDPredictor,PatientDMatcher"
+
+
+
+
+# 📜 License
+This project is licensed under the MIT License. See the LICENSE file for full text and details.
+
+# 📌 Citation
+If you find this code or dataset useful for your research, please cite our paper:
+
+(Citation information will be updated upon publication)
+
+# 📬 Contact
+For technical questions, bug reports, or collaboration inquiries, please open an issue in this repository.
