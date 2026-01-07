@@ -46,12 +46,15 @@ Before running the framework, you must download several external components and 
 
 ### 1. External Components & Models
 Please download and move the following resources to their respective destinations:
-
+https://zenodo.org/records/18174736
 * **RDLinker-att Model Checkpoints**
     * **Source:** [HuggingFace - RDLinker-att](https://huggingface.co/Sirius20412/RDLinker-att)
     * **Destination:** `src/KGRD_framework/utils/RDLinker-att`
 * **Knowledge Graph (KG) & Datasets**
-    * **Location:** `src/KGRD_framework/utils/RDLinker-att`
+    * **Location:** `src/KGRD_framework/kg`
+    * **Data Source:** [Zenodo - KGRD Knowledge Graph](https://zenodo.org/records/18174736)
+    * **Use RDLinker-att:** `src/KGRD_framework/utils/RDLinker-att`
+        change the PATH/TO/kg AS YOUR kg PATH
     * **Format:** Follows the [TxGNN](https://github.com/mims-harvard/TxGNN) data schema.
 * **Doc2Hpo 2.0**
     * **Source:** [Doc2Hpo2.0 GitHub](https://github.com/storm-stout/Doc2Hpo)
