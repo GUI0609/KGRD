@@ -263,8 +263,4 @@ The internal package directory is named **`neo4j_db`** to avoid clashing with th
 | `skip_parse_if_unchanged` skipped work | Incremental mode + unchanged hash; use `--mode full` to re-parse. |
 | `Config error` / argparse | Use `-c` or `--config` (not `--congfig` only if your shell strips it—both work). |
 
----
 
-## License
-
-If this package is published as part of a larger repository, follow that repository’s root **LICENSE**. This subdirectory does not ship a separate license file by default.

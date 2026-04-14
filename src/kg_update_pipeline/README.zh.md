@@ -215,9 +215,4 @@ python kg_update_pipeline/e2e_full_verify.py --help
 
 YAML 中的相对路径相对于**配置文件所在目录**解析（绝对路径则直接使用）。
 
----
 
-## 安全建议
-
-- Neo4j 账号口令使用环境专用配置或密钥管理，不要写入公开仓库。  
-- `update.allow_destructive_ops` 用于约束将来的清空类 Cypher；默认管线逻辑仅执行 **MERGE**。
