@@ -1,0 +1,68 @@
+# -----------------------------------------------------------------------------
+# KG update pipeline — local/runtime (never commit)
+# -----------------------------------------------------------------------------
+
+# Versioned downloads, parsed exports, Neo4j snapshot JSONL, manifests
+kg_data/
+
+# Backup metadata and neo4j-admin dumps written under backup_root
+backups/
+*.dump
+neo4j.dump
+
+# Run logs
+logs/
+*.log
+
+# Incremental state (source hashes, last_success, optional schema snapshots)
+state/
+
+# -----------------------------------------------------------------------------
+# Secrets & machine-local config (use templates/my_kg_update.yaml as template)
+# -----------------------------------------------------------------------------
+
+my_kg_update.yaml
+*.local.yaml
+secrets.yaml
+.env
+.env.*
+
+# -----------------------------------------------------------------------------
+# Python
+# -----------------------------------------------------------------------------
+
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# -----------------------------------------------------------------------------
+# Editors / OS / tooling
+# -----------------------------------------------------------------------------
+
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*~
+
+# Accidental copies of runtime dirs next to templates (if created by mistake)
+templates/kg_data/
+templates/logs/
+templates/backups/
+templates/state/
