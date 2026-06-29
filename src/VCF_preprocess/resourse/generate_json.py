@@ -156,7 +156,10 @@ if __name__ == "__main__":
     OUTPUT_DIR = "./phenopackets"
     
     # Path to the Human Phenotype Ontology (HPO) OBO file
-    HPO_OBO_FILE_PATH = "../../SHEPHERD/patients/und_data/hpo/2019/hp.obo"
+    HPO_OBO_FILE_PATH = os.environ.get(
+        "KGRD_HPO_OBO",
+        "../../KGRD_framework/kg/hp.obo"
+    )
     # ===========================================================
 
     # Resolve paths relative to the script's location

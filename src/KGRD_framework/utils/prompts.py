@@ -437,13 +437,13 @@ def KnowledgeVerifier_agent_system_message(
             hpo_list={HPO_LIST},
             debug=True,
         )
-        ok, explanation = verify(case)
+        result = verify(case)
         ```
         if run verify error, check the json and retry.
         Output schema (must be valid JSON, no extra keys):
         {{
-        "ok": <True|False>,
-        "explanation": "<verbatim string from the verification pipeline>"
+        "ok": <result["ok"]>,
+        "explanation": "<verbatim result['explanation'] from the verification pipeline>"
         }}
 
         """

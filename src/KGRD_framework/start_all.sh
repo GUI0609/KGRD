@@ -108,9 +108,25 @@ restart_one() {
 ########################################
 # Path Configuration
 ########################################
-# Base directory for utilities
+# Resolve paths from this script location, independent of the caller's cwd.
 
-BASE_DIR="KGRD/src/KGRD_framework/utils"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BASE_DIR="${SCRIPT_DIR}/utils"
+
+KGRD_CONFIG_PATH="${KGRD_CONFIG_PATH:-${SCRIPT_DIR}/config.json}"
+if [[ "${KGRD_CONFIG_PATH}" != /* ]]; then
+    KGRD_CONFIG_PATH="$(cd "$(dirname "${KGRD_CONFIG_PATH}")" && pwd)/$(basename "${KGRD_CONFIG_PATH}")"
+fi
+export KGRD_CONFIG_PATH
+
+if [[ ! -f "${KGRD_CONFIG_PATH}" ]]; then
+    echo "ERROR: config file not found: ${KGRD_CONFIG_PATH}"
+    echo "Create it with: cp ${SCRIPT_DIR}/config_example.json ${SCRIPT_DIR}/config.json"
+    exit 1
+fi
+
+echo "Using config: ${KGRD_CONFIG_PATH}"
+
 # 1. Doc2Hpo
 DOC2HPO_DIR="${BASE_DIR}/Doc2Hpo2.0/back-end"
 DOC2HPO_SCRIPT="${DOC2HPO_DIR}/app.py"

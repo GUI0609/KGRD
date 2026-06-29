@@ -8,8 +8,9 @@ from typing import List, Optional
 import sys
 sys.path.append(osp.join(osp.dirname(__file__), "utils"))
 from .utils import query_one_hop_gene_disease,merge_and_sort
+from config_loader import load_config
 
-config = json.load(open("PATH/TO/config.json","r"))
+config = load_config()
 
 class MedDataset:
     
@@ -52,6 +53,7 @@ class MedDataset:
         d_patient_sapbert = case.get("d_patient_sapbert",[])[:100]
         
         d_phenobrain = case.get("d_phenobrain",[])[:50]
+        # Historical field name: in released inference JSON, true_gene stores candidate gene inputs.
         true_gene = case.get("true_gene",[])
         if isinstance(true_gene,str):
             true_gene = [true_gene]
@@ -83,5 +85,3 @@ class MedDataset:
         if idx is None:
             raise KeyError(f"Case URL {case_url} 不存在")
         return self[idx]
-
-

@@ -1,6 +1,21 @@
 import json
-with open('PATH/TO/config.json', 'r') as f:
-    config = json.load(f)
+import os
+from config_loader import load_config
+
+config = load_config()
+
+
+def _config_url(name: str, default: str) -> str:
+    return (config.get("URLS", {}).get(name) or default).rstrip("/")
+
+
+def _service_endpoint(name: str, endpoint: str, default_base: str) -> str:
+    return f"{_config_url(name, default_base)}/{endpoint.lstrip('/')}"
+
+
+def _config_path(name: str, default: str = None) -> str:
+    return config.get("PATHS", {}).get(name) or default
+
 # ===============
 # JSON and General Utilities
 # ===============
@@ -223,7 +238,7 @@ def gene_name2ensembl(genes, species='homo_sapiens'):
 
     result = {}
     for gene in genes:
-        url = f'https://rest.ensembl.org/lookup/symbol/{species}/{gene}?content-type=application/json'
+        url = f"{_config_url('ENSEMBL_REST', 'https://rest.ensembl.org')}/lookup/symbol/{species}/{gene}?content-type=application/json"
         r = requests.get(url, headers={"Content-Type": "application/json"})
         if r.ok:
             data = r.json()
@@ -251,7 +266,7 @@ import numpy as np
 from bs4 import BeautifulSoup
 import re
 
-hp_file = "KGRD/src/KGRD_framework/kg/hp.obo"
+hp_file = _config_path("HPO_OBO")
 hp_dict = load_hp_obo(hp_file)
 def hpo_to_name(hp_code, hp_dict = hp_dict):
 
@@ -516,6 +531,7 @@ class PhenoBrain:
     BASE_URL: str = "http://www.phenobrain.cs.tsinghua.edu.cn"
 
     def __init__(self) -> None:
+        self.BASE_URL = _config_url("PHENOBRAIN", self.BASE_URL)
         self.model = "Ensemble"
         self.topk = 100
         self.poll_interval = 1
@@ -664,7 +680,7 @@ class PhenoBrain:
 
 def g2d(genes:list):
     try:
-        url = "http://localhost:8092/predict"
+        url = _service_endpoint("GNN_PREDICT", "predict", "http://localhost:8092")
         data = {"genes": genes}
         response = requests.post(url, json=data)
         if response.status_code == 200:
@@ -717,7 +733,7 @@ def query_variant_Interpretation_Pathogenicity(chr_num, pos, ref, alt, build="hg
     return info
 
 def get_hpo_detail(hpo_code, projections=["ENG_NAME","ENG_DEF", "SYNONYM", "REL_DIS"]):
-    BASE_URL = "http://www.phenobrain.cs.tsinghua.edu.cn"
+    BASE_URL = _config_url("PHENOBRAIN", "http://www.phenobrain.cs.tsinghua.edu.cn")
     url = f"{BASE_URL}/hpo-detail"
     params = [("hpo", hpo_code)]
     if projections:
@@ -728,7 +744,10 @@ def get_hpo_detail(hpo_code, projections=["ENG_NAME","ENG_DEF", "SYNONYM", "REL_
 
 
 def sapbert_d_patient(hpo_name_list: Optional[List[str]] = None):
-    BASE_URL = "http://localhost:6006"
+    BASE_URL = _config_url(
+        "PATIENT_MATCHER",
+        config.get("URLS", {}).get("SHEPHERD", "http://localhost:6006"),
+    )
     url = f"{BASE_URL}/sapbert_match_patients"
     payload = {
             "batch_id_hpo_dict": {'test_patient_000':hpo_name_list}
@@ -743,43 +762,39 @@ def sapbert_d_patient(hpo_name_list: Optional[List[str]] = None):
 
 import re
 import json
-config = json.load(open("PATH/TO/config.json"))
 def query_in_KB(text_input: str) -> dict:
-    # API 配置
-    API_URL = "http://0.0.0.0/v1/workflows/run"
-    API_KEY = config['API_KEYS']['DIFI']
+    """Query the configured literature evidence backend."""
+    provider = config.get("LITERATURE_RETRIEVAL", {}).get("PROVIDER", "pubmed").lower()
+    if provider == "dify":
+        API_URL = config.get('URLS', {}).get('DIFI_WORKFLOW')
+        API_KEY = config.get('API_KEYS', {}).get('DIFI')
+        if not API_URL or not API_KEY:
+            raise RuntimeError("Dify literature retrieval requires URLS.DIFI_WORKFLOW and API_KEYS.DIFI.")
 
-    # 构建请求
-    payload = {
-        "inputs": {
-            "text": text_input
-        },
-        "response_mode": "blocking",
-        "user": "user-001"
-    }
+        payload = {
+            "inputs": {"text": text_input},
+            "response_mode": "blocking",
+            "user": "user-001"
+        }
+        headers = {
+            "Authorization": f"Bearer {API_KEY}",
+            "Content-Type": "application/json"
+        }
 
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
-    }
+        response = requests.post(API_URL, headers=headers, json=payload, timeout=60)
+        if response.status_code != 200:
+            raise RuntimeError(f"error: {response.status_code}, content:{response.text}")
 
+        data = response.json()
+        output = data.get("data", {}).get("outputs", {}).get("output") or []
 
-    response = requests.post(API_URL, headers=headers, json=payload)
-
-    if response.status_code != 200:
-        raise RuntimeError(f"error: {response.status_code}, content:{response.text}")
-
-    data = response.json()
-    output = data.get("data", {}).get("outputs", {}).get("output")
-
-    result = []
-
-    month_pattern = r"(19|20)\d{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
-    
-    for idx, item in enumerate(output):
-        full_text = item.get("content", "").strip()
-        match = re.search(month_pattern, full_text)
-        if match:
+        result = []
+        month_pattern = r"(19|20)\d{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
+        for item in output:
+            full_text = item.get("content", "").strip()
+            match = re.search(month_pattern, full_text)
+            if not match:
+                continue
             start_index = match.start()
             prefix = full_text[:start_index].strip().split()
             yearandmonth = match.group()
@@ -791,12 +806,60 @@ def query_in_KB(text_input: str) -> dict:
                     "yearandmonth": yearandmonth,
                     "text": main_text
                 })
+        return result
+
+    base = config['URLS']['NCBI_EUTILS'].rstrip("/")
+    ncbi_config = config.get("NCBI", {})
+    retmax = int(ncbi_config.get("PUBMED_RETMAX", 10))
+    params = {
+        "db": "pubmed",
+        "term": text_input,
+        "retmax": retmax,
+        "retmode": "json",
+        "sort": "relevance",
+        "tool": ncbi_config.get("TOOL", "KGRD"),
+    }
+    if ncbi_config.get("EMAIL"):
+        params["email"] = ncbi_config["EMAIL"]
+    if ncbi_config.get("API_KEY"):
+        params["api_key"] = ncbi_config["API_KEY"]
+
+    search_resp = requests.get(f"{base}/esearch.fcgi", params=params, timeout=15)
+    search_resp.raise_for_status()
+    ids = search_resp.json().get("esearchresult", {}).get("idlist", [])
+    if not ids:
+        return []
+
+    summary_params = {
+        "db": "pubmed",
+        "id": ",".join(ids),
+        "retmode": "json",
+        "tool": ncbi_config.get("TOOL", "KGRD"),
+    }
+    if ncbi_config.get("EMAIL"):
+        summary_params["email"] = ncbi_config["EMAIL"]
+    if ncbi_config.get("API_KEY"):
+        summary_params["api_key"] = ncbi_config["API_KEY"]
+
+    summary_resp = requests.get(f"{base}/esummary.fcgi", params=summary_params, timeout=15)
+    summary_resp.raise_for_status()
+    summaries = summary_resp.json().get("result", {})
+
+    result = []
+    for idx, pmid in enumerate(summaries.get("uids", []), start=1):
+        item = summaries.get(pmid, {})
+        result.append({
+            "index": str(idx),
+            "pubmedid": pmid,
+            "yearandmonth": item.get("pubdate", ""),
+            "text": item.get("title", ""),
+        })
 
     return result
 
 def call_api_requests(method, text, api_key=None):
     '''Method:["actree", "scispacy", "gpt"]'''
-    url = f"http://localhost:5010/api/search/{method}"
+    url = _service_endpoint("DOC2HPO", f"api/search/{method}", "http://localhost:5010")
     
 
     if method == 'gpt':
@@ -843,7 +906,7 @@ class SapBertEngine:
         self.model.eval()
         
         # Load dictionary
-        df = pd.read_csv(config['PATHS']['ENTITY_ID_CSV'])
+        df = pd.read_csv(_config_path("ENTITY_ID_CSV", _config_path("WORD_LIST_PATH")))
         self.word_list = [str(w) for w in df['n.entity_id'].tolist()]
         self.lower_map = {w.lower(): w for w in self.word_list}
         self.embeddings = None
@@ -882,7 +945,10 @@ class SapBertEngine:
 # Agent Orchestration and LLM Client
 # ===============
 from openai import OpenAI
-import ollama
+try:
+    import ollama
+except ImportError:
+    ollama = None
 
 
 def justchat(prompt, provider='deepseek', model="deepseek-chat", temperature=1.0):
@@ -892,6 +958,8 @@ def justchat(prompt, provider='deepseek', model="deepseek-chat", temperature=1.0
         resp = client.chat.completions.create(model=model, messages=[{"role": "user", "content": prompt}], temperature=temperature)
         return resp.choices[0].message.content
     elif provider == 'ollama':
+        if ollama is None:
+            raise ImportError("ollama is not available. Install ollama dependencies before using provider='ollama'.")
         resp = ollama.chat(model=model, messages=[{'role': 'user', 'content': prompt}], options={'temperature': temperature})
         return resp['message']['content']
     # Add other providers similarly...
@@ -1151,7 +1219,7 @@ def format_as_text(nodes, rels, query_entities, stats):
 # API Wrapper functions for local services
 def query_gene_to_disease(gene_ids: list):
     try:
-        url = "http://localhost:8194/query_gene_to_disease"
+        url = _service_endpoint("KNOWLEDGE_GRAPH", "query_gene_to_disease", "http://localhost:8194")
         data = {"gene_ids": gene_ids}
         response = requests.post(url, json=data)
         return [i['disease'] for i in response.json()] if response.status_code == 200 else {"error": response.status_code}
@@ -1160,7 +1228,7 @@ def query_gene_to_disease(gene_ids: list):
 
 def query_phenotype_to_disease(phenotype_ids: list):
     try:
-        url = "http://localhost:8194/query_phenotype_to_disease"
+        url = _service_endpoint("KNOWLEDGE_GRAPH", "query_phenotype_to_disease", "http://localhost:8194")
         data = {"phenotype_ids": phenotype_ids}
         response = requests.post(url, json=data)
         return [i['disease'] for i in response.json()] if response.status_code == 200 else {"error": response.status_code}
@@ -1169,7 +1237,7 @@ def query_phenotype_to_disease(phenotype_ids: list):
 
 def query_phenotype_to_gene(phenotype_ids: list):
     try:
-        url = "http://localhost:8194/query_phenotype_to_gene"
+        url = _service_endpoint("KNOWLEDGE_GRAPH", "query_phenotype_to_gene", "http://localhost:8194")
         data = {"phenotype_ids": phenotype_ids}
         response = requests.post(url, json=data)
         return [i['gene'] for i in response.json()] if response.status_code == 200 else {"error": response.status_code}
@@ -1178,7 +1246,7 @@ def query_phenotype_to_gene(phenotype_ids: list):
 
 def query_min_subgraph_for_verifier(node_ids: list):
     try:
-        url = "http://localhost:8194/query_min_subgraph"
+        url = _service_endpoint("KNOWLEDGE_GRAPH", "query_min_subgraph", "http://localhost:8194")
         data = {"node_ids": node_ids}
         response = requests.post(url, json=data)
         return response.json() if response.status_code == 200 else {"error": response.status_code}
@@ -1210,12 +1278,15 @@ def merge_and_sort(*lists, unique=True):
     return sorted_items
 def query_one_hop_gene_disease(
     gene_symbol: str,
-    nodes_csv: str = "KGRD/src/KGRD_framework/kg/merged_nodes_neo4j.csv",
-    edges_csv: str = "KGRD/src/KGRD_framework/kg/merged_edges_neo4j.cleaned.csv",
+    nodes_csv: str = None,
+    edges_csv: str = None,
     top_k = 100
 ) -> List[str]:
 
 
+    kg_data_path = config.get("RD_LINKER", {}).get("DATA_PATH", "")
+    nodes_csv = nodes_csv or _config_path("KG_NODES_CSV", os.path.join(kg_data_path, "merged_nodes_neo4j.csv"))
+    edges_csv = edges_csv or _config_path("KG_EDGES_CSV", os.path.join(kg_data_path, "merged_edges_neo4j.cleaned.csv"))
     nodes = pd.read_csv(nodes_csv)
     edges = pd.read_csv(edges_csv)
 

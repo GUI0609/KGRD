@@ -4,6 +4,7 @@ import time
 import json
 import argparse
 import os.path as osp
+import sys
 from tqdm import tqdm
 import asyncio
 from openai import OpenAI
@@ -16,24 +17,48 @@ import random
 from autogen_agentchat.ui import Console
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 from autogen_agentchat.conditions import TextMentionTermination
-from utils import *
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 from autogen_core.models import ModelFamily
 from autogen_agentchat.messages import BaseAgentEvent, BaseChatMessage
 from autogen_agentchat.base._task import *
-from typing import Sequence
+from typing import Any, Dict, Sequence, Tuple
 from collections import defaultdict
-from autogen_ext.models.ollama import OllamaChatCompletionClient
 from collections import Counter
+from config_loader import load_config, set_config_path
 import warnings
 warnings.filterwarnings(
     "ignore",
     message="Could not find <think>..</think> field in model response content."
 )
 
-config = json.load(open("PATH/TO/config.json", "r"))
+FRAMEWORK_DIR = osp.dirname(osp.abspath(__file__))
+
+
+def _preparse_config_path():
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--config_path", type=str, default=None)
+    args, _ = parser.parse_known_args()
+    if args.config_path:
+        set_config_path(args.config_path)
+
+
+_HELP_REQUESTED = any(arg in ("-h", "--help") for arg in sys.argv[1:])
+if not _HELP_REQUESTED:
+    _preparse_config_path()
+    from utils import *
+    config = load_config()
+else:
+    config = {}
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description="Medagents Setting")
+    parser.add_argument(
+        "--config_path",
+        type=str,
+        default=None,
+        help="path to config.json; defaults to KGRD_CONFIG_PATH or src/KGRD_framework/config.json",
+    )
     parser.add_argument(
         "--project_name",
         type=str,
@@ -79,7 +104,20 @@ def parse_args():
         help="number of experts, >3, including tools",
     )
     parser.add_argument("--n_round", type=int, default=15, help="attempt_vote")
-    parser.add_argument("--withtool", type=bool, default=True, help="with tool or not")
+    tool_group = parser.add_mutually_exclusive_group()
+    tool_group.add_argument(
+        "--withtool",
+        dest="withtool",
+        action="store_true",
+        help="enable the selected tool agents",
+    )
+    tool_group.add_argument(
+        "--no-withtool",
+        dest="withtool",
+        action="store_false",
+        help="disable tool agents for no-tool baselines or ablation studies",
+    )
+    parser.set_defaults(withtool=True)
     parser.add_argument(
         "--SelectTool", type=str, default=None, help="Used tools name.split(',')"
     )
@@ -145,6 +183,7 @@ async def process_single_case(args, dataset, idx, output_dir, model_client):
     
 
     Docs = []
+    SelectTools = []
     if args.withtool and args.SelectTool:
         SelectTools = args.SelectTool.split(",")
     tool_agents = []
@@ -220,7 +259,7 @@ async def process_single_case(args, dataset, idx, output_dir, model_client):
             HPO_NAME_LIST=HPO_NAME_LIST,
             GENE=GENE,
             HPO_LIST=HPO_LIST,
-            )
+        )
         KnowledgeVerifier_agent = create_tool_agent(
             "KnowledgeVerifier",
             tool_func=[CaseInput, verify],
@@ -257,7 +296,9 @@ async def process_single_case(args, dataset, idx, output_dir, model_client):
     assert len(top_k_specialists) == int(num_doctors)
 
 
-    file_path = "utils/all_expert_prompt.jsonl"
+    file_path = config.get("PATHS", {}).get("EXPERT_PROMPTS") or osp.join(
+        FRAMEWORK_DIR, "utils", "all_expert_prompt.jsonl"
+    )
 
     data = []
     with open(file_path, "r", encoding="utf-8") as f:
@@ -536,35 +577,107 @@ async def process_single_case(args, dataset, idx, output_dir, model_client):
 import traceback
 
 
+_PLACEHOLDER_VALUES = {
+    "",
+    "xxx",
+    "sk-xxx",
+    "YOUR_API_KEY",
+    "your_openai_key",
+    "https:",
+    "https://",
+    "https:xxx",
+}
+
+
+def _usable_config_value(value):
+    if not isinstance(value, str):
+        return value
+    value = value.strip()
+    if value in _PLACEHOLDER_VALUES:
+        return None
+    return value
+
+
+def _resolve_model_settings(model_name: str) -> Tuple[str, Dict[str, Any]]:
+    model_configs = config.get("LLM_MODELS", {})
+    if model_name in model_configs:
+        return model_name, model_configs[model_name]
+
+    model_matches = [
+        (name, settings)
+        for name, settings in model_configs.items()
+        if settings.get("model") == model_name
+    ]
+    if len(model_matches) == 1:
+        return model_matches[0]
+
+    available = ", ".join(sorted(model_configs)) or "<none>"
+    raise ValueError(
+        f"Unknown model_name '{model_name}'. Use one of config['LLM_MODELS'] keys: {available}."
+    )
+
+
+def _build_model_info(settings: Dict[str, Any]) -> Dict[str, Any]:
+    model_info = {
+        "vision": False,
+        "function_calling": True,
+        "json_output": True,
+        "family": ModelFamily.R1,
+        "structured_output": True,
+    }
+    model_info.update(settings.get("model_info", {}))
+
+    family = model_info.get("family")
+    if isinstance(family, str):
+        model_info["family"] = getattr(ModelFamily, family.upper(), ModelFamily.UNKNOWN)
+
+    return model_info
+
+
+def create_model_client(model_name: str) -> OpenAIChatCompletionClient:
+    model_key, settings = _resolve_model_settings(model_name)
+    api_keys = config.get("API_KEYS", {})
+
+    api_key = (
+        _usable_config_value(settings.get("api_key"))
+        or _usable_config_value(api_keys.get(model_key.upper()))
+        or _usable_config_value(api_keys.get("DEEPSEEK"))
+    )
+    if not api_key:
+        raise ValueError(
+            f"Missing API key for model_name '{model_name}'. Set LLM_MODELS.{model_key}.api_key "
+            f"or API_KEYS.{model_key.upper()} in config.json."
+        )
+
+    base_url = _usable_config_value(settings.get("base_url"))
+    if not base_url and model_key.lower() == "deepseek":
+        base_url = "https://api.deepseek.com"
+
+    client_kwargs = {
+        "model": settings.get("model", model_name),
+        "api_key": api_key,
+        "model_info": _build_model_info(settings),
+        "temperature": settings.get("temperature", 0.3),
+        "max_tokens": settings.get("max_tokens", 4096),
+    }
+    if base_url:
+        client_kwargs["base_url"] = base_url
+
+    return OpenAIChatCompletionClient(**client_kwargs)
+
+
 async def main_async(args):
     dataset = MedDataset(dataname=args.dataset_name)
     data_len = len(dataset)
     output_dir = args.output_dir
- 
-    if args.model_name in ["deepseek"]:
-        model_client = OpenAIChatCompletionClient(
-            model="deepseek-chat",
-            base_url="https://",    
-            api_key="YOUR_API_KEY", 
 
-            model_info={
-                "vision": False,
-                "function_calling": True,
-                "json_output": True,
-                "family": ModelFamily.R1, #NOT THINKING IN KGRD, JUST USE THE PARAMETER SETTING OF ModelFamily.R1
-                "structured_output": True,
-            },
-            temperature=0.3,
-            max_tokens=4096
-        )
-
-        for idx in tqdm(range(data_len)):
-            try:
-                await process_single_case(args, dataset, idx, output_dir, model_client)
-            except Exception as e:
-                print(f"Failed to process case {idx} after all attempts: {str(e)}")
-                continue
-        # YOU CAN ADD MORE MODELS AS model_client
+    model_client = create_model_client(args.model_name)
+    for idx in tqdm(range(data_len)):
+        try:
+            await process_single_case(args, dataset, idx, output_dir, model_client)
+        except Exception as e:
+            print(f"Failed to process case {idx} after all attempts: {str(e)}")
+            continue
 
 
 

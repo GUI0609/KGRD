@@ -1,1 +1,0 @@
-Official Website for KGRD – Comming Soon

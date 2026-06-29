@@ -1,8 +1,20 @@
 import requests
+import os
+import sys
+
+FRAMEWORK_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if FRAMEWORK_DIR not in sys.path:
+    sys.path.insert(0, FRAMEWORK_DIR)
+
+from config_loader import load_config
+
+config = load_config()
+
 # install doc2hpo api from https://github.com/stormliucong/Doc2Hpo2.0
 def call_api_requests(method, text, api_key=None):
     '''Method:["actree", "scispacy", "gpt"]'''
-    url = f"http://localhost:5010/api/search/{method}"
+    base_url = config.get("URLS", {}).get("DOC2HPO", "http://localhost:5010").rstrip("/")
+    url = f"{base_url}/api/search/{method}"
     
     if method == 'gpt':
         data = {

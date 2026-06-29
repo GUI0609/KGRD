@@ -1,8 +1,16 @@
 from flask import Flask, request, jsonify
 from neo4j import GraphDatabase
-import json
-with open('PATH/TO/config.json', 'r') as f:
-    config = json.load(f)
+import os
+import sys
+from urllib.parse import urlparse
+
+FRAMEWORK_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if FRAMEWORK_DIR not in sys.path:
+    sys.path.insert(0, FRAMEWORK_DIR)
+
+from config_loader import load_config
+
+config = load_config()
 
 app = Flask(__name__)
 
@@ -98,4 +106,6 @@ def query_min_subgraph():
     return jsonify(run_query(query, {"node_ids": node_ids}))
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=8194, debug=True)
+    kg_url = config.get("URLS", {}).get("KNOWLEDGE_GRAPH", "http://localhost:8194")
+    parsed_url = urlparse(kg_url)
+    app.run(host="0.0.0.0", port=parsed_url.port or 8194, debug=True)

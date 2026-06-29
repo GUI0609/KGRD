@@ -1,11 +1,14 @@
 import json
-with open('PATH/TO/config.json', 'r') as f:
-    config = json.load(f)
+from config_loader import load_config
+
+config = load_config()
 import os
 import re
 import joblib
 import pandas as pd
 import numpy as np
+import requests
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -64,6 +67,123 @@ class FinalExplanation:
     weighted_note: str
     features_used: Dict[str, float]
     decision: bool
+
+
+def _coerce_verdict(value: Any) -> Optional[bool]:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    if text in {"true", "yes", "support", "supported", "positive"}:
+        return True
+    if text in {"false", "no", "oppose", "opposed", "negative", "unsupported"}:
+        return False
+    return None
+
+
+def _coerce_confidence(value: Any, default: float) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        confidence = default
+    return max(0.0, min(1.0, confidence))
+
+
+def _pubmed_params(extra: Dict[str, Any]) -> Dict[str, Any]:
+    ncbi_config = config.get("NCBI", {})
+    params = {"tool": ncbi_config.get("TOOL", "KGRD")}
+    if ncbi_config.get("EMAIL"):
+        params["email"] = ncbi_config["EMAIL"]
+    if ncbi_config.get("API_KEY"):
+        params["api_key"] = ncbi_config["API_KEY"]
+    params.update(extra)
+    return params
+
+
+def build_pubmed_query(case: CaseInput) -> str:
+    def phrase(term: str, field: str = "Title/Abstract") -> str:
+        clean = str(term).replace('"', "").strip()
+        return f'"{clean}"[{field}]'
+
+    disease = str(case.disease).strip()
+    disease_query = f"({phrase(disease)} OR {phrase(disease, 'MeSH Terms')})"
+    context_terms = [str(i).strip() for i in (case.gene_list or []) + (case.hpo_name_list or [])[:5] if str(i).strip()]
+
+    if not context_terms:
+        return disease_query
+
+    context_query = " OR ".join(phrase(term) for term in context_terms)
+    return f"{disease_query} AND ({context_query})"
+
+
+def query_pubmed_evidence(case: CaseInput) -> List[Dict[str, Any]]:
+    retmax = int(config.get("NCBI", {}).get("PUBMED_RETMAX", 10))
+    base = config["URLS"]["NCBI_EUTILS"].rstrip("/")
+    query = build_pubmed_query(case)
+
+    search_params = _pubmed_params({
+        "db": "pubmed",
+        "term": query,
+        "retmax": retmax,
+        "retmode": "json",
+        "sort": "relevance",
+    })
+    search_resp = requests.get(f"{base}/esearch.fcgi", params=search_params, timeout=15)
+    search_resp.raise_for_status()
+    ids = search_resp.json().get("esearchresult", {}).get("idlist", [])
+    if not ids:
+        return []
+
+    fetch_params = _pubmed_params({
+        "db": "pubmed",
+        "id": ",".join(ids),
+        "retmode": "xml",
+    })
+    fetch_resp = requests.get(f"{base}/efetch.fcgi", params=fetch_params, timeout=15)
+    fetch_resp.raise_for_status()
+    root = ET.fromstring(fetch_resp.content)
+    hits = []
+
+    for article in root.findall(".//PubmedArticle"):
+        title_node = article.find(".//ArticleTitle")
+        abstract_parts = []
+        for node in article.findall(".//Abstract/AbstractText"):
+            text = " ".join(node.itertext()).strip()
+            label = node.attrib.get("Label")
+            if label and text:
+                abstract_parts.append(f"{label}: {text}")
+            elif text:
+                abstract_parts.append(text)
+
+        article_ids = article.findall(".//PubmedData/ArticleIdList/ArticleId")
+        doi = next((node.text or "" for node in article_ids if node.attrib.get("IdType") == "doi"), "")
+        hits.append({
+            "pmid": article.findtext(".//MedlineCitation/PMID", ""),
+            "title": " ".join(title_node.itertext()).strip() if title_node is not None else "",
+            "abstract": " ".join(abstract_parts),
+            "journal": article.findtext(".//Journal/Title", "") or article.findtext(".//Journal/ISOAbbreviation", ""),
+            "pub_year": article.findtext(".//JournalIssue/PubDate/Year", ""),
+            "doi": doi,
+        })
+    return hits
+
+
+def query_dify_evidence(case: CaseInput) -> List[Dict[str, Any]]:
+    query = f"{case.hpo_name_list} {case.gene_list} {case.disease}"
+    hits = query_in_KB(query) or []
+    return [
+        {
+            "pmid": item.get("pubmedid", ""),
+            "title": "",
+            "abstract": item.get("text", ""),
+            "journal": "",
+            "pub_year": item.get("yearandmonth", ""),
+            "doi": "",
+            "source": "dify",
+        }
+        for item in hits
+    ]
 
 
 # =========================
@@ -132,8 +252,8 @@ def run_kg_channel(case: CaseInput) -> Verdict:
         raw_out = justchat(prompt, provider=config['LLM_PROVIDER'])
         data = parse_json(raw_out) or {}
         
-        v = str(data.get("verdict", "")).lower() in {"true", "yes"}
-        conf = float(data.get("confidence", 0) or 0.2)
+        v = _coerce_verdict(data.get("verdict"))
+        conf = _coerce_confidence(data.get("confidence"), 0.2)
 
         ce = ChannelEvidence(
             source="kg", verdict=v if data else None, confidence=conf,
@@ -168,10 +288,10 @@ def run_db_channel(case: CaseInput) -> Verdict:# disease correlation
     Orphanet (ORPHA:{orphacode}): {json.dumps(orphanet_result)}"""
 
     data = parse_json(justchat(db_prompt, provider=config['LLM_PROVIDER'])) or {}
-    v = str(data.get("verdict", "")).lower() in {"true", "yes"}
+    v = _coerce_verdict(data.get("verdict"))
     
     ce = ChannelEvidence(
-        source="db", verdict=v if data else None, confidence=data.get("confidence", 0.4),
+        source="db", verdict=v if data else None, confidence=_coerce_confidence(data.get("confidence"), 0.4),
         rationale=data.get("rationale", "DB synthesis complete."),
         matched_signals={"orphacode": orphacode},
         raw_model_io=data
@@ -180,27 +300,39 @@ def run_db_channel(case: CaseInput) -> Verdict:# disease correlation
                    extras={"orphacode": orphacode, "orphanet_result": orphanet_result, "explain": asdict(ce)})
 
 def run_gene_channel(case: CaseInput) -> Verdict:
-    """Gene-Disease Channel: Validates pathogenicity using NCBI Gene data."""
+    """Gene-Disease Channel: Validates candidate genes using NCBI Gene data."""
     if not case.gene_list:
         ce = ChannelEvidence(source="gene", verdict=None, confidence=0.0, rationale="No gene provided.")
         return Verdict(source="gene", verdict=None, confidence=0.0, notes="N/A", extras={"explain": asdict(ce)})
 
-    gene = case.gene_list[0]
-    ncbi_gene = {}
-    try:
-        ncbi_gene = query_ncbi_eutils(term=str(gene), db='gene') or {}
-    except Exception: pass
+    genes = list(dict.fromkeys(str(gene).strip() for gene in case.gene_list if str(gene).strip()))
+    gene_records = {}
+    for gene in genes:
+        try:
+            gene_records[gene] = query_ncbi_eutils(term=gene, db='gene') or []
+        except Exception as e:
+            gene_records[gene] = {"error": repr(e)}
 
-    gene_prompt = f"""Assess gene-disease pathogenicity. Return JSON.
-    Gene: {gene}, Disease: {case.disease}
-    NCBI Record: {json.dumps(ncbi_gene)}"""
+    gene_prompt = f"""Assess whether the candidate gene set supports the proposed disease diagnosis.
+    Treat the gene channel as supportive if one or more candidate genes have documented or plausible disease relevance.
+    Return STRICT JSON:
+    {{"verdict": true/false/null, "confidence": float, "rationale": str, "supporting_genes": [str], "opposing_or_uninformative_genes": [str]}}
+    Candidate genes: {genes}
+    Disease: {case.disease}
+    NCBI Gene records: {json.dumps(gene_records, ensure_ascii=False)}"""
 
     data = parse_json(justchat(gene_prompt, provider=config['LLM_PROVIDER'])) or {}
-    v = str(data.get("verdict", "")).lower() in {"true", "yes"}
+    v = _coerce_verdict(data.get("verdict"))
 
     ce = ChannelEvidence(
-        source="gene", verdict=v if data else None, confidence=data.get("confidence", 0.3),
+        source="gene", verdict=v if data else None, confidence=_coerce_confidence(data.get("confidence"), 0.3),
         rationale=data.get("rationale", "Gene validation finished."),
+        matched_signals={
+            "genes": genes,
+            "gene_records": gene_records,
+            "supporting_genes": data.get("supporting_genes", []),
+            "opposing_or_uninformative_genes": data.get("opposing_or_uninformative_genes", []),
+        },
         raw_model_io=data
     )
     return Verdict(source="gene", verdict=ce.verdict, confidence=ce.confidence, notes=ce.rationale, extras={"explain": asdict(ce)})
@@ -232,10 +364,10 @@ def run_phenotype_channel(case: CaseInput, orphanet_result: dict = None) -> Verd
     Patient: {patient_hpos}, Disease: {disease_hpos}, Jaccard: {sim:.2f}"""
 
     data = parse_json(justchat(phen_prompt, provider=config['LLM_PROVIDER'])) or {}
-    v = str(data.get("verdict", "")).lower() in {"true", "yes"}
+    v = _coerce_verdict(data.get("verdict"))
 
     ce = ChannelEvidence(
-        source="phenotype", verdict=v if data else None, confidence=data.get("confidence", 0.3),
+        source="phenotype", verdict=v if data else None, confidence=_coerce_confidence(data.get("confidence"), 0.3),
         rationale=f"{data.get('comment', 'Phenotype overlap analysis.')} (J={sim:.2f})",
         matched_signals={"jaccard": sim, "matched": list(intersection)},
         raw_model_io=data
@@ -244,26 +376,104 @@ def run_phenotype_channel(case: CaseInput, orphanet_result: dict = None) -> Verd
                    extras={"jaccard": sim, "explain": asdict(ce)})
 
 def run_literature_channel(case: CaseInput) -> Verdict:
-    """Literature Channel: Searches internal Knowledge Base for PubMed evidence."""
-    query_tokens = f"{case.hpo_name_list} {case.gene_list} {case.disease}"
-    hits = []
+    """Literature Channel: Searches the configured literature evidence backend."""
+    provider = config.get("LITERATURE_RETRIEVAL", {}).get("PROVIDER", "pubmed").lower()
+    query = build_pubmed_query(case) if provider == "pubmed" else f"{case.hpo_name_list} {case.gene_list} {case.disease}"
     try:
-        hits = query_in_KB(query_tokens) or []
-    except Exception: pass
+        if provider == "dify":
+            hits = query_dify_evidence(case)
+        elif provider == "pubmed":
+            hits = query_pubmed_evidence(case)
+        else:
+            raise ValueError(f"Unsupported literature retrieval provider: {provider}")
+    except Exception as e:
+        ce = ChannelEvidence(
+            source="literature",
+            verdict=None,
+            confidence=0.0,
+            rationale=f"Literature query failed via {provider}: {e!r}",
+            matched_signals={"provider": provider, "query": query, "hits": []},
+        )
+        return Verdict(source="literature", verdict=None, confidence=0.0, notes=ce.rationale, extras={"explain": asdict(ce)})
 
-    lit_prompt = f"""Summarize PubMed evidence for this case. Return JSON.
-    Query: {query_tokens}, Top KB Hits: {json.dumps(hits)}"""
+    if not hits:
+        ce = ChannelEvidence(
+            source="literature",
+            verdict=None,
+            confidence=0.0,
+            rationale=f"No literature records were retrieved via {provider}.",
+            matched_signals={"provider": provider, "query": query, "hits": []},
+        )
+        return Verdict(source="literature", verdict=None, confidence=0.0, notes=ce.rationale, extras={"explain": asdict(ce)})
+
+    lit_prompt = f"""Assess whether the retrieved literature records support the proposed diagnosis for this case.
+    Use only the literature records shown below. Return STRICT JSON:
+    {{"verdict": true/false/null, "confidence": float, "rationale": str, "supporting_pmids": [str]}}
+    Retrieval provider: {provider}
+    Query: {query}
+    Disease: {case.disease}
+    Genes: {case.gene_list}
+    HPO names: {case.hpo_name_list}
+    Literature records: {json.dumps(hits, ensure_ascii=False)}"""
 
     data = parse_json(justchat(lit_prompt, provider=config['LLM_PROVIDER'])) or {}
-    v = str(data.get("verdict", "")).lower() in {"true", "yes"}
+    v = _coerce_verdict(data.get("verdict"))
 
     ce = ChannelEvidence(
-        source="literature", verdict=v if data else None, confidence=data.get("confidence", 0.3),
-        rationale=data.get("note", "Literature review complete."),
-        matched_signals={"hits": hits},
+        source="literature", verdict=v if data else None, confidence=_coerce_confidence(data.get("confidence"), 0.3),
+        rationale=data.get("rationale") or data.get("note", "Literature review complete."),
+        matched_signals={"provider": provider, "query": query, "hits": hits, "supporting_pmids": data.get("supporting_pmids", [])},
         raw_model_io=data
     )
     return Verdict(source="literature", verdict=ce.verdict, confidence=ce.confidence, notes=ce.rationale, extras={"explain": asdict(ce)})
+
+
+def adjudicate_evidence(case: CaseInput, verdicts: List[Verdict]) -> Tuple[bool, Dict[str, Any]]:
+    thresholds = config["THRESHOLDS"]
+    weights = thresholds["CHANNEL_WEIGHTS"]
+    min_confidence = thresholds.get("MIN_CONFIDENCE", 0.6)
+    voter_margin = thresholds.get("VOTER", 1.5)
+
+    support_weight = sum(weights.get(v.source, 1.0) * v.confidence for v in verdicts if v.yes())
+    oppose_weight = sum(weights.get(v.source, 1.0) * v.confidence for v in verdicts if v.no())
+    phenotype = next((v for v in verdicts if v.source == "phenotype"), None)
+    gene = next((v for v in verdicts if v.source == "gene"), None)
+    literature = next((v for v in verdicts if v.source == "literature"), None)
+
+    gene_and_literature_strongly_positive = (
+        gene is not None and gene.yes() and gene.confidence >= min_confidence
+        and literature is not None and literature.yes() and literature.confidence >= min_confidence
+    )
+    phenotype_not_strongly_negative = not (
+        phenotype is not None and phenotype.no() and phenotype.confidence >= min_confidence
+    ) or gene_and_literature_strongly_positive
+    independent_support = any(
+        v.source in {"literature", "db", "kg"} and v.yes() and v.confidence >= min_confidence
+        for v in verdicts
+    )
+    gene_dependency_satisfied = not (
+        case.gene_list and gene is not None and gene.no() and gene.confidence >= min_confidence
+    )
+    sufficient_support_margin = support_weight >= oppose_weight + voter_margin
+
+    decision = (
+        phenotype_not_strongly_negative
+        and sufficient_support_margin
+        and independent_support
+        and gene_dependency_satisfied
+    )
+    details = {
+        "support_weight": support_weight,
+        "oppose_weight": oppose_weight,
+        "voter_margin": voter_margin,
+        "min_confidence": min_confidence,
+        "phenotype_not_strongly_negative": phenotype_not_strongly_negative,
+        "gene_and_literature_strongly_positive": gene_and_literature_strongly_positive,
+        "independent_support": independent_support,
+        "gene_dependency_satisfied": gene_dependency_satisfied,
+        "sufficient_support_margin": sufficient_support_margin,
+    }
+    return decision, details
 
 
 
@@ -299,17 +509,22 @@ def verify_with_explanation(
         weight = config["THRESHOLDS"]['CHANNEL_WEIGHTS'].get(v.source, 1.0)
         notes.append(f"{v.source}@{weight:.1f} -> {val:.2f}")
     
-    weighted_note = "[WEIGHTED] " + " | ".join(notes)
+    decision, rule_details = adjudicate_evidence(case_norm, v_results)
+    weighted_note = "[WEIGHTED] " + " | ".join(notes) + f" | rules={json.dumps(rule_details)}"
 
     # 4. Final Adjudication
-
-    # LLM-based final decision logic
-    prompt = f"""You are a clinical evidence adjudicator. 
-    Case: {case_norm.disease}, Features: {features_used}.
-    Return JSON: {{"ok": bool, "Explain": str}}"""
-    raw = justchat(prompt, provider=config['LLM_PROVIDER'])
-    res = parse_json(raw) or {"ok": False, "Explain": "LLM Adjudication Failed."}
-    decision, proba_or_text = res.get("ok", False), res.get("Explain", "")
+    prompt = f"""You are a clinical evidence adjudicator. Explain the rule-based verifier decision.
+    Use only the channel outputs and rule evaluation shown below. Do not override the rule decision.
+    Rule decision: {decision}
+    Rule evaluation: {json.dumps(rule_details)}
+    Channel outputs: {json.dumps([asdict(v) for v in v_results], ensure_ascii=False)}
+    Return JSON: {{"Explain": str}}"""
+    try:
+        raw = justchat(prompt, provider=config['LLM_PROVIDER'])
+        res = parse_json(raw) or {}
+        proba_or_text = res.get("Explain", "")
+    except Exception as e:
+        proba_or_text = f"Final explanation unavailable: {e!r}"
   
 
     # 5. Build Explanation Package
@@ -332,8 +547,17 @@ def verify_with_explanation(
 
     )
 
-    summary_text = " | ".join([f"[{v.source}] {v.notes}" for v in v_results] + [weighted_note])
+    summary_text = " | ".join([f"[{v.source}] {v.notes}" for v in v_results] + [weighted_note, f"[final] {proba_or_text}"])
     return decision, summary_text, final_exp
+
+
+def verify(case: CaseInput) -> Dict[str, Any]:
+    decision, summary, explanation = verify_with_explanation(case)
+    return {
+        "ok": decision,
+        "explanation": summary,
+        "details": asdict(explanation),
+    }
 
 if __name__ == "__main__":
     # Example workflow execution
@@ -344,6 +568,6 @@ if __name__ == "__main__":
         disease="Primary hyperoxaluria type 1"
     )
     
-    is_supported, summary, explanation = verify_with_explanation(test_case, use_llm_final=False)
+    is_supported, summary, explanation = verify_with_explanation(test_case)
     print(f"Final Decision: {is_supported}")
     print(f"Summary: {summary}")

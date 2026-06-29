@@ -7,8 +7,14 @@ import pandas as pd
 import torch.nn.functional as F
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModel
-with open('PATH/TO/config.json', 'r') as f:
-    config = json.load(f)
+
+FRAMEWORK_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if FRAMEWORK_DIR not in sys.path:
+    sys.path.insert(0, FRAMEWORK_DIR)
+
+from config_loader import load_config
+
+config = load_config()
 
 class SapBertService:
     def __init__(self, config, hpo_to_name_func):
@@ -25,7 +31,7 @@ class SapBertService:
         # Parameters (Defaults if not in JSON)
         self.batch_size = 32
         self.top_k = 100
-        self.degree_alpha = 0.75  # Controls weight of common vs rare terms
+        self.degree_alpha = 0.5  # Controls weight of common vs rare terms
         
         # Load Model from PATHS['SAPBERT']
         model_path = self.paths.get('SAPBERT')
@@ -37,12 +43,13 @@ class SapBertService:
         self.model = AutoModel.from_pretrained(model_path).to(self.device)
         self.model.eval()
 
-        # Load Degree Info (Assuming it's in the same directory as ENTITY_ID_CSV or specified)
-        # If the file is missing in the new config, we default weights to 1.0
+        # HP degree weights must be regenerated from the active KG whenever the KG is updated.
+        # Configure PATHS.HP_DEGREE_PATH to the generated hp_degree.csv; otherwise weights default to 1.0.
         self.hp_name2degree = {}
         try:
-            # We look for 'hp_degree.csv' in the same folder as the OBO or entity CSV
-            deg_path = os.path.join(os.path.dirname(self.paths.get('ENTITY_ID_CSV', '')), 'hp_degree.csv')
+            deg_path = self.paths.get('HP_DEGREE_PATH') or os.path.join(
+                os.path.dirname(self.paths.get('ENTITY_ID_CSV', '')), 'hp_degree.csv'
+            )
             if os.path.exists(deg_path):
                 df_deg = pd.read_csv(deg_path)
                 df_deg.columns = [c.strip() for c in df_deg.columns]
@@ -72,7 +79,7 @@ class SapBertService:
     def _get_inv_degree_weight(self, hp_name):
         d = self.hp_name2degree.get((hp_name or "").strip())
         if d is None or d <= 0: return 1.0
-        return 1.0 / ((float(d) + 1e-6) ** self.degree_alpha)
+        return 1.0 / ((float(d) + 1) ** self.degree_alpha)
 
     def match_patients(self, batch_id_hpo_dict):
         # Merge test batch with real cohort for vectorization
@@ -207,10 +214,16 @@ def health_check():
     return jsonify({"status": "running", "model": "SapBERT"})
 
 if __name__ == "__main__":
-    # Pull port from URLS if defined, or default (e.g., matching SHEPHERD at 6006)
-    # The JSON shows SHEPHERD: http://localhost:6006
+    from urllib.parse import urlparse
+
+    matcher_url = (
+        config.get('URLS', {}).get('PATIENT_MATCHER')
+        or config.get('URLS', {}).get('SHEPHERD')
+        or 'http://localhost:6006'
+    )
+    parsed_url = urlparse(matcher_url)
     host = "0.0.0.0"
-    port = 6006 
+    port = parsed_url.port or 6006
     
     print(f"Starting SapBERT Matching Server on {host}:{port}")
     app.run(host=host, port=port, debug=False)

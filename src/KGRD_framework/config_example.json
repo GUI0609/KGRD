@@ -29,17 +29,33 @@
 "URLS": {
     "KNOWLEDGE_GRAPH": "http://localhost:8194",
     "GNN_PREDICT": "http://localhost:8092",
+    "PATIENT_MATCHER": "http://localhost:6006",
+    "DOC2HPO": "http://localhost:5010",
     "SHEPHERD": "http://localhost:6006",
     "PHENOBRAIN": "http://www.phenobrain.cs.tsinghua.edu.cn",
     "DIFI_WORKFLOW": "http://0.0.0.0/v1/workflows/run",
     "ENSEMBL_REST": "https://rest.ensembl.org",
     "NCBI_EUTILS": "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 },
+"LITERATURE_RETRIEVAL": {
+    "PROVIDER": "pubmed",
+    "NOTE": "The internal vector-indexed Dify literature database is not redistributed because of copyright and licensing restrictions. Use PROVIDER='dify' only with an authorized private workflow; otherwise use the public PubMed API fallback."
+},
+"NCBI": {
+    "TOOL": "KGRD",
+    "EMAIL": "",
+    "API_KEY": "",
+    "PUBMED_RETMAX": 10
+},
 "PATHS": {
     "DATASETS":"PATH/TO/KGRD/data/KGRD_diagnosis_test",
     "SAPBERT": "PATH/TO/Multi-agent-conversation-for-disease-diagnosis/SapBERT",
     "HPO_OBO": "PATH/TO/KGRD/src/KGRD_framework/kg/hp.obo",
     "WORD_LIST_PATH": "PATH/TO/KGRD/src/KGRD_framework/kg/all_nodes_entity_id.csv",
+    "ENTITY_ID_CSV": "PATH/TO/KGRD/src/KGRD_framework/kg/all_nodes_entity_id.csv",
+    "KG_NODES_CSV": "PATH/TO/KGRD/src/KGRD_framework/kg/merged_nodes_neo4j.csv",
+    "KG_EDGES_CSV": "PATH/TO/KGRD/src/KGRD_framework/kg/merged_edges_neo4j.cleaned.csv",
+    "HP_DEGREE_PATH": "PATH/TO/KGRD/src/KGRD_framework/utils/hp_degree.csv",
     "OUTPUT_ROOT": "./output",
     "LOG_DIR": "./output/log",
     "EVAL_DIR": "PATH/TO/KGRD/eval_results",

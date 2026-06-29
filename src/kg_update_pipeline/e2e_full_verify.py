@@ -12,12 +12,12 @@ Neo4j：
   --pipeline-neo4j-dry-run：管线内连库 dry-run MERGE（需环境变量中的密码写入临时 yaml）
 
 示例：
-  cd /share/gguilin/rd-project
-  python kg_update_pipeline/e2e_full_verify.py
+  cd KGRD
+  python src/kg_update_pipeline/e2e_full_verify.py
 
-  export KG_NEO4J_URI='bolt://172.27.127.183:7690'
+  export KG_NEO4J_URI='bolt://127.0.0.1:7687'
   export KG_NEO4J_PASSWORD='***'
-  python kg_update_pipeline/e2e_full_verify.py --strict-neo4j --pipeline-neo4j-dry-run --connect-neo4j
+  python src/kg_update_pipeline/e2e_full_verify.py --strict-neo4j --pipeline-neo4j-dry-run --connect-neo4j
 """
 
 from __future__ import annotations

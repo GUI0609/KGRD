@@ -6,9 +6,10 @@ import numpy as np
 from pathlib import Path
 from collections import Counter
 from typing import Dict, List, Tuple, Optional, Any
+from config_loader import load_config
 
 class MedicalEvaluator:
-    def __init__(self, config_path: str = "PATH/TO/config.json"):
+    def __init__(self, config_path: Optional[str] = None):
         self.config = self._load_config(config_path)
         
         self.provider = self.config.get("LLM_PROVIDER", "deepseek").lower()
@@ -27,11 +28,8 @@ class MedicalEvaluator:
         self._setup_logging()
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def _load_config(self, path: str) -> Dict:
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Config file not found: {path}")
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
+    def _load_config(self, path: Optional[str]) -> Dict:
+        return load_config(path)
 
     def _setup_logging(self):
         evaluator_settings = self.config.get("LLM_MODELS", {}).get("evaluator", {})
@@ -192,7 +190,7 @@ class MedicalEvaluator:
         self.logger.info(f"Summary saved to {output_path}")
 
 if __name__ == "__main__":
-    CONFIG_PATH = 'PATH/TO/config.json'
+    CONFIG_PATH = None
     
     try:
         evaluator = MedicalEvaluator(CONFIG_PATH)

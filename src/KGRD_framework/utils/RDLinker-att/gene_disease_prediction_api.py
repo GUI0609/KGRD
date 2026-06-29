@@ -1,9 +1,13 @@
 import os
 import sys
 
-import json
-with open('PATH/TO/config.json', 'r') as f:
-    config = json.load(f)
+FRAMEWORK_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if FRAMEWORK_DIR not in sys.path:
+    sys.path.insert(0, FRAMEWORK_DIR)
+
+from config_loader import load_config
+
+config = load_config()
 
 sys.path.append(config['RD_LINKER']['MAIN_PATH'])
 from flask import Flask, request, jsonify
@@ -242,4 +246,8 @@ if __name__ == '__main__':
 
     initialize_model()
 
-    app.run(host='0.0.0.0', port=8092, debug=True) 
+    app.run(
+        host=config.get('RD_LINKER', {}).get('HOST', '0.0.0.0'),
+        port=int(config.get('RD_LINKER', {}).get('PORT', 8092)),
+        debug=True
+    )
